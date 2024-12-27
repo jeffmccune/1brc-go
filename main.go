@@ -33,6 +33,10 @@ func (r *TaskV1) Run(ctx context.Context) (StationMap, error) {
 	sm := make(StationMap, 10_000)
 	buf := bytes.NewBuffer(r.buf)
 
+	if r.buf[len(r.buf)-1] != '\n' {
+		return sm, errors.Format("task %d cannot run: buffer with len %d does not end in a newline", r.id, len(r.buf))
+	}
+
 	for {
 		line, err := buf.ReadBytes('\n')
 		if err != nil {
@@ -43,26 +47,19 @@ func (r *TaskV1) Run(ctx context.Context) (StationMap, error) {
 		}
 		// split into station name and measurement
 		idx := bytes.Index(line, []byte(";"))
+		// up to the ;
 		station := string(line[:idx])
-		// Parse the integer part, skip the newline at the end.
-		temp, err := strconv.ParseInt(string(line[idx+1:len(line)-3]), 10, 16)
+		// after the ; up to the final newline byte.
+		temperature := string(line[idx+1 : len(line)-2])
+
+		// This is only about 1 second slower than parsing it as an int.
+		temp, err := strconv.ParseFloat(temperature, 64)
 		if err != nil {
 			return sm, errors.Wrap(err)
-		}
-		// Parse the fractional part, skip the newline at the end.
-		fractional, err := strconv.ParseUint(string(line[len(line)-2]), 10, 16)
-		if err != nil {
-			return sm, errors.Wrap(err)
-		}
-		// the final temperature multiplied by 10
-		if temp > 0 {
-			temp = temp*10 + int64(fractional)
-		} else {
-			temp = temp*10 - int64(fractional)
 		}
 
 		// Update the station map.
-		sm.Add(station, temp)
+		sm.Add(station, int64(10*temp))
 	}
 }
 
@@ -252,6 +249,8 @@ func Producer(ctx context.Context, tasks chan Task, r io.Reader) error {
 		if err != nil {
 			if err == io.EOF {
 				break
+			} else {
+				return errors.Wrap(err)
 			}
 		}
 
