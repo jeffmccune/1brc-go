@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"sort"
-	"strconv"
 	"sync"
 	"time"
 
@@ -50,27 +49,26 @@ func (r *TaskV1) Run(ctx context.Context) (StationMap, error) {
 		// up to the ;
 		station := string(line[:idx])
 		// after the ; up to the final newline byte.
-		temperature := string(line[idx+1 : len(line)-2])
+		temperature := line[idx+1 : len(line)-2]
 
 		// This is only about 1 second slower than parsing it as an int.
-		temp, err := strconv.ParseFloat(temperature, 64)
-		if err != nil {
-			return sm, errors.Wrap(err)
-		}
+		temp := ParseTemp(temperature)
 
 		// Update the station map.
-		sm.Add(station, int64(10*temp))
+		sm.Add(station, temp)
 	}
 }
 
 type Temperature struct {
-	min, max, sum, num int64
+	min, max int16
+	num      int32
+	sum      int64
 }
 
-func (t *Temperature) Add(val int64) {
+func (t *Temperature) Add(val int16) {
 	t.min = min(t.min, val)
 	t.max = max(t.max, val)
-	t.sum += val
+	t.sum += int64(val)
 	t.num += 1
 }
 
@@ -85,9 +83,27 @@ func (t Temperature) String() string {
 	return fmt.Sprintf(
 		"%.1f/%.1f/%.1f",
 		0.1*float64(t.min),
-		0.1*float64(t.sum/t.num),
+		0.1*float64(t.sum)/float64(t.num),
 		0.1*float64(t.max),
 	)
+}
+
+func ParseTemp(numb []byte) (num int16) {
+	var negative bool
+	if numb[0] == '-' {
+		negative = true
+		numb = numb[1:]
+	}
+	for _, c := range numb {
+		if c == '.' {
+			continue
+		}
+		num = num*10 + int16(c-'0')
+	}
+	if negative {
+		return -num
+	}
+	return num
 }
 
 type StationMap map[string]*Temperature
@@ -102,14 +118,17 @@ func (sm StationMap) Merge(other StationMap) {
 	}
 }
 
-func (sm StationMap) Add(station string, val int64) {
+func (sm StationMap) Add(station string, val int16) {
+	// TODO: Could change station to a []byte and use
+	// unsafe.String(unsafe.SliceData(buf), len(buf)) to read from the map without
+	// an allocation.
 	if t, ok := sm[station]; ok {
 		t.Add(val)
 	} else {
 		sm[station] = &Temperature{
 			min: val,
 			max: val,
-			sum: val,
+			sum: int64(val),
 			num: 1,
 		}
 	}
