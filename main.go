@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"runtime"
 	"runtime/pprof"
@@ -49,7 +50,7 @@ func (r *TaskV1) Run(ctx context.Context) (StationMap, error) {
 		// up to the ;
 		station := string(line[:idx])
 		// after the ; up to the final newline byte.
-		temperature := line[idx+1 : len(line)-2]
+		temperature := line[idx+1 : len(line)-1]
 
 		// This is only about 1 second slower than parsing it as an int.
 		temp := ParseTemp(temperature)
@@ -82,9 +83,9 @@ func (t *Temperature) Merge(other *Temperature) {
 func (t Temperature) String() string {
 	return fmt.Sprintf(
 		"%.1f/%.1f/%.1f",
-		0.1*float64(t.min),
-		0.1*float64(t.sum)/float64(t.num),
-		0.1*float64(t.max),
+		float64(t.min)/10,
+		math.Round(float64(t.sum)/float64(t.num))/10,
+		float64(t.max)/10,
 	)
 }
 
@@ -303,9 +304,13 @@ func Summary(ctx context.Context, sm StationMap, w io.Writer) error {
 		stations = append(stations, station)
 	}
 	sort.Strings(stations)
+	fmt.Fprint(w, "{")
+	sep := ""
 	for _, station := range stations {
 		temperature, _ := sm[station]
-		fmt.Fprintf(w, "%s=%s\n", station, temperature.String())
+		fmt.Fprintf(w, "%s%s=%s", sep, station, temperature.String())
+		sep = ", "
 	}
+	fmt.Fprint(w, "}\n")
 	return nil
 }
